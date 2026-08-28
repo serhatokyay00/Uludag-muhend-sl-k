@@ -1,0 +1,31 @@
+{
+  "name": "Uludağ Mühendislik — Peyzaj Atölyesi",
+  "short_name": "Uludağ Peyzaj",
+  "description": "Uludağ Mühendislik peyzaj projeleri için alan, bitki ve maliyet takip uygulaması",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#132029",
+  "theme_color": "#132029",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

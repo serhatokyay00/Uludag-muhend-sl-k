@@ -320,6 +320,19 @@
     color:var(--moss);
   }
 
+  .setup-overlay{
+    position:fixed;
+    inset:0;
+    background:var(--bg);
+    z-index:200;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px 18px;
+    overflow-y:auto;
+  }
+  .setup-card{ max-width:420px; width:100%; }
+
   .toast{
     position:fixed;
     bottom:24px;
@@ -340,6 +353,28 @@
 </style>
 </head>
 <body>
+
+<div id="setupOverlay" class="setup-overlay">
+  <div class="setup-card card">
+    <p class="eyebrow" style="margin-bottom:6px;">kurulum &middot; bir kere yapılır</p>
+    <h2 style="margin:0 0 10px 0; font-size:19px;">Paylaşımlı çalışma alanı</h2>
+    <p class="note" style="margin-top:0;">Bu uygulamayı iki kişi aynı verilerle kullanmak için bir "paylaşım koduna" bağlanmanız gerekiyor. Kodu ilk açan kişi oluşturur, diğeri o kodu girer.</p>
+    <button class="primary" onclick="createShareCode()">Yeni paylaşım oluştur</button>
+
+    <div id="setupResult" class="calc-result hidden" style="margin-top:14px;">
+      <div class="cap">Paylaşım kodun — diğer kişiye gönder:</div>
+      <div class="mono" id="newCodeDisplay" style="font-size:14px; word-break:break-all; margin-top:6px;"></div>
+      <button class="secondary" onclick="copyCode()">Kodu kopyala</button>
+      <button class="primary" onclick="finishSetup()">Uygulamayı aç</button>
+    </div>
+
+    <div style="margin-top:22px; padding-top:18px; border-top:1px solid var(--line);">
+      <label>Zaten bir kodun var mı?</label>
+      <input id="joinCodeInput" placeholder="Paylaşım kodunu buraya yapıştır">
+      <button class="secondary" onclick="joinShareCode()">Bu kodla bağlan</button>
+    </div>
+  </div>
+</div>
 
 <header>
   <p class="eyebrow">uludağ mühendislik &middot; peyzaj atölyesi</p>
@@ -503,6 +538,40 @@
       </div>
       <p class="note">Yoğunluk değerleri malzemeye göre değişir; ocaktan/bayiden aldığın malzemenin gerçek yoğunluğunu biliyorsan üstteki kutuyu elle düzelt. Tahmini değerler: toprak ~1.3, dolomit ~1.5, cüruf ~1.1, pomza ~0.8 ton/m³.</p>
     </div>
+
+    <div class="card">
+      <p class="eyebrow" style="margin-bottom:8px;">dozaj ile malzeme miktarı</p>
+      <label>Malzeme (kendi referansların)</label>
+      <div class="chip-row" id="bagChips"></div>
+
+      <label>Serilecek alan (m²)</label>
+      <input id="bagArea" type="number" step="0.1" inputmode="decimal" oninput="calcBags()">
+      <div class="row2">
+        <div>
+          <label>Dozaj (m² başına)</label>
+          <input id="bagDosage" type="number" step="0.1" inputmode="decimal" oninput="calcBags()">
+        </div>
+        <div>
+          <label>Birim</label>
+          <select id="bagUnit" onchange="calcBags()">
+            <option value="kg">kg</option>
+            <option value="litre">litre</option>
+          </select>
+        </div>
+      </div>
+      <label>1 çuval/paket kaç kg veya litre? (opsiyonel)</label>
+      <input id="bagPackSize" type="number" step="0.1" inputmode="decimal" oninput="calcBags()">
+
+      <div id="bagResult" class="calc-result hidden">
+        <div class="big mono" id="bagCount">–</div>
+        <div class="cap" id="bagCountCap">toplam miktar</div>
+        <div style="margin-top:10px;" class="mono hidden" id="bagPackCountWrap">
+          <span id="bagPackCount"></span>
+        </div>
+        <div class="cap hidden" id="bagPackCap">gereken çuval/paket sayısı</div>
+      </div>
+      <p class="note">Referans dozajlar saha notlarından: dolomit ~70 kg/m², pomza ~30 litre/m². Çuval/paket boyutunu (örn. 25 kg, 40 lt) girersen kaç çuval gerektiğini de gösterir.</p>
+    </div>
   </div>
 
   <!-- NOTES -->
@@ -519,6 +588,10 @@
 
 <footer style="text-align:center; padding:18px 16px 60px 16px; color:var(--muted); font-size:11px; letter-spacing:0.04em;">
   Uludağ Mühendislik
+  <div style="margin-top:8px;">
+    <span class="mono" id="footerCode"></span>
+    <button class="link" onclick="showSetupOverlay()" style="margin-left:6px;">kodu değiştir</button>
+  </div>
 </footer>
 
 <div class="toast" id="toast"></div>
@@ -528,7 +601,30 @@ let projects = [];
 let currentId = null;
 let storageOK = true;
 
-const STORE_KEY = 'peyzaj-projeler-v1';
+const BUCKET_STORAGE_KEY = 'peyzaj_bucket_id';
+
+function getBucket(){ return localStorage.getItem(BUCKET_STORAGE_KEY) || ''; }
+function setBucketId(id){ localStorage.setItem(BUCKET_STORAGE_KEY, id); }
+
+async function kvGet(key){
+  const bucket = getBucket();
+  if(!bucket) return null;
+  try{
+    const res = await fetch(`https://kvdb.io/${bucket}/${key}`);
+    if(res.status === 404) return null;
+    if(!res.ok) return null;
+    return await res.text();
+  }catch(e){ return null; }
+}
+
+async function kvSet(key, value){
+  const bucket = getBucket();
+  if(!bucket) return false;
+  try{
+    const res = await fetch(`https://kvdb.io/${bucket}/${key}?ttl=604800`, { method:'POST', body:value });
+    return res.ok;
+  }catch(e){ return false; }
+}
 
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -545,59 +641,42 @@ function fmtMoney(n){
 }
 
 async function loadProjects(){
-  try{
-    const res = await window.storage.get(STORE_KEY, true);
-    projects = res && res.value ? JSON.parse(res.value) : [];
-  }catch(e){
-    projects = [];
-  }
+  const text = await kvGet('projects');
+  projects = text ? JSON.parse(text) : [];
+  if(text) kvSet('projects', text); // açılışta "dokunarak" saklama süresini uzat
   document.getElementById('loadingList').classList.add('hidden');
   renderList();
 }
 
 async function saveProjects(){
-  try{
-    const res = await window.storage.set(STORE_KEY, JSON.stringify(projects), true);
-    if(!res){ storageOK = false; showToast('Kaydetme başarısız oldu'); }
-  }catch(e){
-    storageOK = false;
-    showToast('Kaydetme başarısız oldu');
-  }
+  const ok = await kvSet('projects', JSON.stringify(projects));
+  if(!ok){ storageOK = false; showToast('Kaydetme başarısız oldu'); }
 }
 
 // Paylaşılan veri: uygulama açıkken birkaç saniyede bir başkasının eklediklerini kontrol et
 setInterval(async ()=>{
   if(currentId) return; // detay ekranındayken üstüne yazma
-  try{
-    const res = await window.storage.get(STORE_KEY, true);
-    const fresh = res && res.value ? JSON.parse(res.value) : [];
-    if(JSON.stringify(fresh) !== JSON.stringify(projects)){
-      projects = fresh;
-      renderList();
-    }
-  }catch(e){}
+  if(document.getElementById('viewList').classList.contains('hidden')) return;
+  const text = await kvGet('projects');
+  const fresh = text ? JSON.parse(text) : [];
+  if(JSON.stringify(fresh) !== JSON.stringify(projects)){
+    projects = fresh;
+    renderList();
+  }
 }, 4000);
 
-const NOTES_KEY = 'peyzaj-notlar-v1';
 let notes = [];
 
 async function loadNotes(){
-  try{
-    const res = await window.storage.get(NOTES_KEY, true);
-    notes = res && res.value ? JSON.parse(res.value) : [];
-  }catch(e){
-    notes = [];
-  }
+  const text = await kvGet('notes');
+  notes = text ? JSON.parse(text) : [];
+  if(text) kvSet('notes', text);
   renderNotesList();
 }
 
 async function saveNotes(){
-  try{
-    const res = await window.storage.set(NOTES_KEY, JSON.stringify(notes), true);
-    if(!res){ showToast('Kaydetme başarısız oldu'); }
-  }catch(e){
-    showToast('Kaydetme başarısız oldu');
-  }
+  const ok = await kvSet('notes', JSON.stringify(notes));
+  if(!ok){ showToast('Kaydetme başarısız oldu'); }
 }
 
 function addNote(){
@@ -641,14 +720,12 @@ function renderNotesList(){
 // Notlar sekmesindeyken paylaşılan güncellemeleri periyodik kontrol et
 setInterval(async ()=>{
   if(document.getElementById('viewNotes').classList.contains('hidden')) return;
-  try{
-    const res = await window.storage.get(NOTES_KEY, true);
-    const fresh = res && res.value ? JSON.parse(res.value) : [];
-    if(JSON.stringify(fresh) !== JSON.stringify(notes)){
-      notes = fresh;
-      renderNotesList();
-    }
-  }catch(e){}
+  const text = await kvGet('notes');
+  const fresh = text ? JSON.parse(text) : [];
+  if(JSON.stringify(fresh) !== JSON.stringify(notes)){
+    notes = fresh;
+    renderNotesList();
+  }
 }, 4000);
 
 function switchTab(tab){
@@ -931,6 +1008,51 @@ function calcDensity(){
   document.getElementById('densTon').textContent = fmtNum(ton) + ' ton';
 }
 
+const BAG_MATERIALS = [
+  {name:'Dolomit (~70 kg/m²)', dosage:70, unit:'kg'},
+  {name:'Pomza (~30 litre/m²)', dosage:30, unit:'litre'}
+];
+
+function renderBagChips(){
+  const wrap = document.getElementById('bagChips');
+  if(!wrap) return;
+  wrap.innerHTML = BAG_MATERIALS.map((m,i)=>
+    `<button type="button" class="chip" onclick="pickBagChip(${i})">${escapeHtml(m.name)}</button>`
+  ).join('');
+}
+
+function pickBagChip(i){
+  const m = BAG_MATERIALS[i];
+  document.getElementById('bagDosage').value = m.dosage;
+  document.getElementById('bagUnit').value = m.unit;
+  calcBags();
+}
+
+function calcBags(){
+  const area = parseFloat(document.getElementById('bagArea').value);
+  const dosage = parseFloat(document.getElementById('bagDosage').value);
+  const unit = document.getElementById('bagUnit').value;
+  const packSize = parseFloat(document.getElementById('bagPackSize').value);
+  const box = document.getElementById('bagResult');
+  if(isNaN(area) || isNaN(dosage) || area<=0 || dosage<=0){ box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const total = area * dosage;
+  document.getElementById('bagCount').textContent = fmtNum(total) + ' ' + unit;
+  document.getElementById('bagCountCap').textContent = 'toplam miktar (' + unit + ')';
+
+  const packWrap = document.getElementById('bagPackCountWrap');
+  const packCap = document.getElementById('bagPackCap');
+  if(!isNaN(packSize) && packSize > 0){
+    const packs = Math.ceil(total / packSize);
+    document.getElementById('bagPackCount').textContent = packs.toLocaleString('tr-TR') + ' çuval/paket';
+    packWrap.classList.remove('hidden');
+    packCap.classList.remove('hidden');
+  } else {
+    packWrap.classList.add('hidden');
+    packCap.classList.add('hidden');
+  }
+}
+
 // FAB
 const fab = document.createElement('button');
 fab.className = 'fab';
@@ -948,13 +1070,67 @@ document.getElementById('dName').addEventListener('input', ()=>{});
   document.getElementById(id).addEventListener('change', commitFields);
 });
 
-loadProjects();
-renderDensityChips();
+let _pendingBucket = null;
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
-  });
+async function createShareCode(){
+  try{
+    const res = await fetch('https://kvdb.io/', {
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'email=uludagpeyzaj@example.com&default_ttl=604800'
+    });
+    const id = (await res.text()).trim();
+    if(!res.ok || !id || id.length < 5){ showToast('Oluşturulamadı, tekrar dene'); return; }
+    await fetch(`https://kvdb.io/${id}/projects?ttl=604800`, { method:'POST', body: JSON.stringify([]) });
+    await fetch(`https://kvdb.io/${id}/notes?ttl=604800`, { method:'POST', body: JSON.stringify([]) });
+    _pendingBucket = id;
+    document.getElementById('newCodeDisplay').textContent = id;
+    document.getElementById('setupResult').classList.remove('hidden');
+  }catch(e){
+    showToast('Bağlantı hatası, internetini kontrol et');
+  }
+}
+
+function copyCode(){
+  const code = document.getElementById('newCodeDisplay').textContent;
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(code).then(()=> showToast('Kopyalandı')).catch(()=> showToast('Kopyalanamadı, elle seçip kopyala'));
+  }
+}
+
+function finishSetup(){
+  if(_pendingBucket) setBucketId(_pendingBucket);
+  document.getElementById('setupOverlay').classList.add('hidden');
+  startApp();
+}
+
+function joinShareCode(){
+  const val = document.getElementById('joinCodeInput').value.trim();
+  if(!val){ showToast('Kod gir'); return; }
+  setBucketId(val);
+  document.getElementById('setupOverlay').classList.add('hidden');
+  startApp();
+}
+
+function showSetupOverlay(){
+  document.getElementById('setupOverlay').classList.remove('hidden');
+}
+
+function startApp(){
+  document.getElementById('footerCode').textContent = 'Paylaşım kodu: ' + getBucket();
+  loadProjects();
+  renderDensityChips();
+  renderBagChips();
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+}
+
+if(getBucket()){
+  document.getElementById('setupOverlay').classList.add('hidden');
+  startApp();
 }
 </script>
 </body>

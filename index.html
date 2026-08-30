@@ -356,27 +356,6 @@
 </head>
 <body>
 
-<div id="setupOverlay" class="setup-overlay">
-  <div class="setup-card card">
-    <p class="eyebrow" style="margin-bottom:6px;">kurulum &middot; bir kere yapılır</p>
-    <h2 style="margin:0 0 10px 0; font-size:19px;">Paylaşımlı çalışma alanı</h2>
-    <p class="note" style="margin-top:0;">Bu uygulamayı iki kişi aynı verilerle kullanmak için bir "paylaşım koduna" bağlanmanız gerekiyor. Kodu ilk açan kişi oluşturur, diğeri o kodu girer.</p>
-    <button class="primary" onclick="createShareCode()">Yeni paylaşım oluştur</button>
-
-    <div id="setupResult" class="calc-result hidden" style="margin-top:14px;">
-      <div class="cap">Paylaşım kodun — diğer kişiye gönder:</div>
-      <div class="mono" id="newCodeDisplay" style="font-size:14px; word-break:break-all; margin-top:6px;"></div>
-      <button class="secondary" onclick="copyCode()">Kodu kopyala</button>
-      <button class="primary" onclick="finishSetup()">Uygulamayı aç</button>
-    </div>
-
-    <div style="margin-top:22px; padding-top:18px; border-top:1px solid var(--line);">
-      <label>Zaten bir kodun var mı?</label>
-      <input id="joinCodeInput" placeholder="Paylaşım kodunu buraya yapıştır">
-      <button class="secondary" onclick="joinShareCode()">Bu kodla bağlan</button>
-    </div>
-  </div>
-</div>
 
 <header>
   <p class="eyebrow">uludağ mühendislik &middot; peyzaj atölyesi</p>
@@ -593,10 +572,6 @@
 
 <footer style="text-align:center; padding:18px 16px 60px 16px; color:var(--muted); font-size:11px; letter-spacing:0.04em;">
   Uludağ Mühendislik
-  <div style="margin-top:8px;">
-    <span class="mono" id="footerCode"></span>
-    <button class="link" onclick="showSetupOverlay()" style="margin-left:6px;">kodu değiştir</button>
-  </div>
 </footer>
 
 <div class="toast" id="toast"></div>
@@ -608,26 +583,19 @@ let currentId = null;
 let storageOK = true;
 let lastKvError = '';
 
-const BUCKET_STORAGE_KEY = 'peyzaj_bucket_id';
-
-function getBucket(){ return localStorage.getItem(BUCKET_STORAGE_KEY) || ''; }
-function setBucketId(id){ localStorage.setItem(BUCKET_STORAGE_KEY, id); }
+const FIREBASE_URL = 'https://uludag-muhendislik-default-rtdb.firebaseio.com/peyzaj-atolyesi.json';
 
 async function fetchAll(){
-  const uri = getBucket();
-  if(!uri) return null;
   try{
-    const res = await fetch(uri);
+    const res = await fetch(FIREBASE_URL);
     if(!res.ok){ lastKvError = 'GET ' + res.status; return null; }
     return await res.json();
   }catch(e){ lastKvError = 'GET ağ hatası: ' + e.message; return null; }
 }
 
 async function saveAll(){
-  const uri = getBucket();
-  if(!uri) return false;
   try{
-    const res = await fetch(uri, {
+    const res = await fetch(FIREBASE_URL, {
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ projects, notes })
@@ -685,7 +653,7 @@ async function manualRefresh(){
 
 // Uygulama tekrar ön plana gelince (başka biri bir şey eklemiş olabilir) tazele
 document.addEventListener('visibilitychange', () => {
-  if(document.visibilityState === 'visible' && !currentId && getBucket()){
+  if(document.visibilityState === 'visible' && !currentId){
     loadAll();
   }
 });
@@ -738,7 +706,7 @@ function switchTab(tab){
   document.getElementById('viewDetail').classList.add('hidden');
   const titles = {projects:'Projeler', calc:'Hesaplayıcı', notes:'Notlar'};
   document.getElementById('headerTitle').textContent = titles[tab];
-  if((tab === 'projects' || tab === 'notes') && getBucket()) loadAll();
+  if(tab === 'projects' || tab === 'notes') loadAll();
 }
 
 function renderList(){
@@ -1070,54 +1038,7 @@ document.getElementById('dName').addEventListener('input', ()=>{});
   document.getElementById(id).addEventListener('change', commitFields);
 });
 
-let _pendingBucket = null;
-
-async function createShareCode(){
-  try{
-    const res = await fetch('https://api.jsonstorage.net/v1/json', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ projects:[], notes:[] })
-    });
-    if(!res.ok){ showToast('Oluşturulamadı, tekrar dene'); return; }
-    const data = await res.json();
-    const uri = data && data.uri;
-    if(!uri){ showToast('Oluşturulamadı, tekrar dene'); return; }
-    _pendingBucket = uri;
-    document.getElementById('newCodeDisplay').textContent = uri;
-    document.getElementById('setupResult').classList.remove('hidden');
-  }catch(e){
-    showToast('Bağlantı hatası: ' + e.message);
-  }
-}
-
-function copyCode(){
-  const code = document.getElementById('newCodeDisplay').textContent;
-  if(navigator.clipboard){
-    navigator.clipboard.writeText(code).then(()=> showToast('Kopyalandı')).catch(()=> showToast('Kopyalanamadı, elle seçip kopyala'));
-  }
-}
-
-function finishSetup(){
-  if(_pendingBucket) setBucketId(_pendingBucket);
-  document.getElementById('setupOverlay').classList.add('hidden');
-  startApp();
-}
-
-function joinShareCode(){
-  const val = document.getElementById('joinCodeInput').value.trim();
-  if(!val){ showToast('Kod gir'); return; }
-  setBucketId(val);
-  document.getElementById('setupOverlay').classList.add('hidden');
-  startApp();
-}
-
-function showSetupOverlay(){
-  document.getElementById('setupOverlay').classList.remove('hidden');
-}
-
 function startApp(){
-  document.getElementById('footerCode').textContent = 'Paylaşım kodu kayıtlı';
   loadAll();
   renderDensityChips();
   renderBagChips();
@@ -1128,10 +1049,7 @@ function startApp(){
   }
 }
 
-if(getBucket()){
-  document.getElementById('setupOverlay').classList.add('hidden');
-  startApp();
-}
+startApp();
 </script>
 </body>
 </html>

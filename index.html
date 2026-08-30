@@ -626,7 +626,11 @@ async function kvSet(key, value){
   if(!bucket) return false;
   try{
     const res = await fetch(`https://kvdb.io/${bucket}/${key}`, { method:'POST', body:value });
-    if(!res.ok){ lastKvError = 'SET ' + res.status; }
+    if(!res.ok){
+      let bodyText = '';
+      try{ bodyText = await res.text(); }catch(e2){}
+      lastKvError = 'SET ' + res.status + (bodyText ? ' — ' + bodyText.slice(0,120) : '');
+    }
     return res.ok;
   }catch(e){ lastKvError = 'SET ağ hatası: ' + e.message; return false; }
 }
@@ -1082,7 +1086,7 @@ async function createShareCode(){
     const res = await fetch('https://kvdb.io/', {
       method:'POST',
       headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:'email=uludagpeyzaj@example.com&default_ttl=604800'
+      body:'email=uludagpeyzaj@example.com'
     });
     const id = (await res.text()).trim();
     if(!res.ok || !id || id.length < 5){ showToast('Oluşturulamadı, tekrar dene'); return; }

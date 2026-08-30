@@ -1,4 +1,4 @@
-const CACHE_NAME = 'peyzaj-atolyesi-v1';
+const CACHE_NAME = 'peyzaj-atolyesi-v2';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -24,6 +24,15 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+
+  // Sadece kendi sitemizden gelen, GET istekleri için önbellek uygula.
+  // Başka bir siteye (ör. kvdb.io) giden istekler veya POST/PUT gibi
+  // veri gönderen istekler doğrudan ağa gitsin, araya girmeyelim.
+  if (url.origin !== self.location.origin || event.request.method !== 'GET') {
+    return; // event.respondWith çağırmazsak tarayıcı normal şekilde devam eder
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       return cached || fetch(event.request).then((res) => {

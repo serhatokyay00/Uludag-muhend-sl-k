@@ -348,6 +348,8 @@
     transition:opacity 0.25s;
     pointer-events:none;
     z-index:50;
+    max-width:85vw;
+    text-align:center;
   }
   .toast.show{ opacity:1; }
 </style>
@@ -606,15 +608,17 @@ const BUCKET_STORAGE_KEY = 'peyzaj_bucket_id';
 function getBucket(){ return localStorage.getItem(BUCKET_STORAGE_KEY) || ''; }
 function setBucketId(id){ localStorage.setItem(BUCKET_STORAGE_KEY, id); }
 
+let lastKvError = '';
+
 async function kvGet(key){
   const bucket = getBucket();
   if(!bucket) return null;
   try{
     const res = await fetch(`https://kvdb.io/${bucket}/${key}`);
     if(res.status === 404) return null;
-    if(!res.ok) return null;
+    if(!res.ok){ lastKvError = 'GET ' + res.status; return null; }
     return await res.text();
-  }catch(e){ return null; }
+  }catch(e){ lastKvError = 'GET ağ hatası: ' + e.message; return null; }
 }
 
 async function kvSet(key, value){
@@ -622,15 +626,16 @@ async function kvSet(key, value){
   if(!bucket) return false;
   try{
     const res = await fetch(`https://kvdb.io/${bucket}/${key}?ttl=604800`, { method:'POST', body:value });
+    if(!res.ok){ lastKvError = 'SET ' + res.status; }
     return res.ok;
-  }catch(e){ return false; }
+  }catch(e){ lastKvError = 'SET ağ hatası: ' + e.message; return false; }
 }
 
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(()=> t.classList.remove('show'), 1800);
+  setTimeout(()=> t.classList.remove('show'), 4000);
 }
 
 function fmtNum(n){
@@ -650,7 +655,7 @@ async function loadProjects(){
 
 async function saveProjects(){
   const ok = await kvSet('projects', JSON.stringify(projects));
-  if(!ok){ storageOK = false; showToast('Kaydetme başarısız oldu'); }
+  if(!ok){ storageOK = false; showToast('Kaydetme başarısız: ' + lastKvError); }
 }
 
 // Paylaşılan veri: uygulama açıkken birkaç saniyede bir başkasının eklediklerini kontrol et
@@ -676,7 +681,7 @@ async function loadNotes(){
 
 async function saveNotes(){
   const ok = await kvSet('notes', JSON.stringify(notes));
-  if(!ok){ showToast('Kaydetme başarısız oldu'); }
+  if(!ok){ showToast('Kaydetme başarısız: ' + lastKvError); }
 }
 
 function addNote(){

@@ -380,7 +380,10 @@
 
 <header>
   <p class="eyebrow">uludağ mühendislik &middot; peyzaj atölyesi</p>
-  <h1 id="headerTitle">Projeler</h1>
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+    <h1 id="headerTitle">Projeler</h1>
+    <button class="link" onclick="manualRefresh()" style="white-space:nowrap;">⟳ yenile</button>
+  </div>
   <div class="scale-bar mono">
     <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
   </div>
@@ -600,36 +603,39 @@
 
 <script>
 let projects = [];
+let notes = [];
 let currentId = null;
 let storageOK = true;
+let lastKvError = '';
 
 const BUCKET_STORAGE_KEY = 'peyzaj_bucket_id';
 
 function getBucket(){ return localStorage.getItem(BUCKET_STORAGE_KEY) || ''; }
 function setBucketId(id){ localStorage.setItem(BUCKET_STORAGE_KEY, id); }
 
-let lastKvError = '';
-
-async function kvGet(key){
-  const bucket = getBucket();
-  if(!bucket) return null;
+async function fetchAll(){
+  const uri = getBucket();
+  if(!uri) return null;
   try{
-    const res = await fetch(`https://kvdb.io/${bucket}/${key}`);
-    if(res.status === 404) return null;
+    const res = await fetch(uri);
     if(!res.ok){ lastKvError = 'GET ' + res.status; return null; }
-    return await res.text();
+    return await res.json();
   }catch(e){ lastKvError = 'GET ağ hatası: ' + e.message; return null; }
 }
 
-async function kvSet(key, value){
-  const bucket = getBucket();
-  if(!bucket) return false;
+async function saveAll(){
+  const uri = getBucket();
+  if(!uri) return false;
   try{
-    const res = await fetch(`https://kvdb.io/${bucket}/${key}`, { method:'POST', body:value });
+    const res = await fetch(uri, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ projects, notes })
+    });
     if(!res.ok){
       let bodyText = '';
       try{ bodyText = await res.text(); }catch(e2){}
-      lastKvError = 'SET ' + res.status + (bodyText ? ' — ' + bodyText.slice(0,120) : '');
+      lastKvError = 'SET ' + res.status + (bodyText ? ' — ' + bodyText.slice(0,150) : '');
     }
     return res.ok;
   }catch(e){ lastKvError = 'SET ağ hatası: ' + e.message; return false; }
@@ -649,44 +655,40 @@ function fmtMoney(n){
   return (Math.round(n*100)/100).toLocaleString('tr-TR') + ' ₺';
 }
 
-async function loadProjects(){
-  const text = await kvGet('projects');
-  projects = text ? JSON.parse(text) : [];
-  if(text) kvSet('projects', text); // açılışta "dokunarak" saklama süresini uzat
+async function loadAll(){
+  const data = await fetchAll();
+  projects = (data && Array.isArray(data.projects)) ? data.projects : [];
+  notes = (data && Array.isArray(data.notes)) ? data.notes : [];
   document.getElementById('loadingList').classList.add('hidden');
   renderList();
-}
-
-async function saveProjects(){
-  const ok = await kvSet('projects', JSON.stringify(projects));
-  if(!ok){ storageOK = false; showToast('Kaydetme başarısız: ' + lastKvError); }
-}
-
-// Paylaşılan veri: uygulama açıkken birkaç saniyede bir başkasının eklediklerini kontrol et
-setInterval(async ()=>{
-  if(currentId) return; // detay ekranındayken üstüne yazma
-  if(document.getElementById('viewList').classList.contains('hidden')) return;
-  const text = await kvGet('projects');
-  const fresh = text ? JSON.parse(text) : [];
-  if(JSON.stringify(fresh) !== JSON.stringify(projects)){
-    projects = fresh;
-    renderList();
-  }
-}, 4000);
-
-let notes = [];
-
-async function loadNotes(){
-  const text = await kvGet('notes');
-  notes = text ? JSON.parse(text) : [];
-  if(text) kvSet('notes', text);
   renderNotesList();
 }
 
+// Geriye dönük uyumluluk: bazı yerler bu adları çağırıyor
+async function loadProjects(){ await loadAll(); }
+async function loadNotes(){ /* zaten loadAll ile birlikte yükleniyor */ renderNotesList(); }
+
+async function saveProjects(){
+  const ok = await saveAll();
+  if(!ok){ storageOK = false; showToast('Kaydetme başarısız: ' + lastKvError); }
+}
+
 async function saveNotes(){
-  const ok = await kvSet('notes', JSON.stringify(notes));
+  const ok = await saveAll();
   if(!ok){ showToast('Kaydetme başarısız: ' + lastKvError); }
 }
+
+async function manualRefresh(){
+  await loadAll();
+  showToast('Güncellendi');
+}
+
+// Uygulama tekrar ön plana gelince (başka biri bir şey eklemiş olabilir) tazele
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && !currentId && getBucket()){
+    loadAll();
+  }
+});
 
 function addNote(){
   const el = document.getElementById('newNoteText');
@@ -726,17 +728,6 @@ function renderNotesList(){
     </div>`).join('');
 }
 
-// Notlar sekmesindeyken paylaşılan güncellemeleri periyodik kontrol et
-setInterval(async ()=>{
-  if(document.getElementById('viewNotes').classList.contains('hidden')) return;
-  const text = await kvGet('notes');
-  const fresh = text ? JSON.parse(text) : [];
-  if(JSON.stringify(fresh) !== JSON.stringify(notes)){
-    notes = fresh;
-    renderNotesList();
-  }
-}, 4000);
-
 function switchTab(tab){
   document.getElementById('tabProjects').classList.toggle('active', tab==='projects');
   document.getElementById('tabCalc').classList.toggle('active', tab==='calc');
@@ -747,7 +738,7 @@ function switchTab(tab){
   document.getElementById('viewDetail').classList.add('hidden');
   const titles = {projects:'Projeler', calc:'Hesaplayıcı', notes:'Notlar'};
   document.getElementById('headerTitle').textContent = titles[tab];
-  if(tab === 'notes') loadNotes();
+  if((tab === 'projects' || tab === 'notes') && getBucket()) loadAll();
 }
 
 function renderList(){
@@ -1083,20 +1074,20 @@ let _pendingBucket = null;
 
 async function createShareCode(){
   try{
-    const res = await fetch('https://kvdb.io/', {
+    const res = await fetch('https://api.jsonstorage.net/v1/json', {
       method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:'email=uludagpeyzaj@example.com'
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ projects:[], notes:[] })
     });
-    const id = (await res.text()).trim();
-    if(!res.ok || !id || id.length < 5){ showToast('Oluşturulamadı, tekrar dene'); return; }
-    await fetch(`https://kvdb.io/${id}/projects`, { method:'POST', body: JSON.stringify([]) });
-    await fetch(`https://kvdb.io/${id}/notes`, { method:'POST', body: JSON.stringify([]) });
-    _pendingBucket = id;
-    document.getElementById('newCodeDisplay').textContent = id;
+    if(!res.ok){ showToast('Oluşturulamadı, tekrar dene'); return; }
+    const data = await res.json();
+    const uri = data && data.uri;
+    if(!uri){ showToast('Oluşturulamadı, tekrar dene'); return; }
+    _pendingBucket = uri;
+    document.getElementById('newCodeDisplay').textContent = uri;
     document.getElementById('setupResult').classList.remove('hidden');
   }catch(e){
-    showToast('Bağlantı hatası, internetini kontrol et');
+    showToast('Bağlantı hatası: ' + e.message);
   }
 }
 
@@ -1126,8 +1117,8 @@ function showSetupOverlay(){
 }
 
 function startApp(){
-  document.getElementById('footerCode').textContent = 'Paylaşım kodu: ' + getBucket();
-  loadProjects();
+  document.getElementById('footerCode').textContent = 'Paylaşım kodu kayıtlı';
+  loadAll();
   renderDensityChips();
   renderBagChips();
   if ('serviceWorker' in navigator) {

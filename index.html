@@ -625,7 +625,7 @@ async function kvSet(key, value){
   const bucket = getBucket();
   if(!bucket) return false;
   try{
-    const res = await fetch(`https://kvdb.io/${bucket}/${key}?ttl=604800`, { method:'POST', body:value });
+    const res = await fetch(`https://kvdb.io/${bucket}/${key}`, { method:'POST', body:value });
     if(!res.ok){ lastKvError = 'SET ' + res.status; }
     return res.ok;
   }catch(e){ lastKvError = 'SET ağ hatası: ' + e.message; return false; }
@@ -1086,8 +1086,8 @@ async function createShareCode(){
     });
     const id = (await res.text()).trim();
     if(!res.ok || !id || id.length < 5){ showToast('Oluşturulamadı, tekrar dene'); return; }
-    await fetch(`https://kvdb.io/${id}/projects?ttl=604800`, { method:'POST', body: JSON.stringify([]) });
-    await fetch(`https://kvdb.io/${id}/notes?ttl=604800`, { method:'POST', body: JSON.stringify([]) });
+    await fetch(`https://kvdb.io/${id}/projects`, { method:'POST', body: JSON.stringify([]) });
+    await fetch(`https://kvdb.io/${id}/notes`, { method:'POST', body: JSON.stringify([]) });
     _pendingBucket = id;
     document.getElementById('newCodeDisplay').textContent = id;
     document.getElementById('setupResult').classList.remove('hidden');

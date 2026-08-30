@@ -1,6 +1,5 @@
-const CACHE_NAME = 'peyzaj-atolyesi-v2';
+const CACHE_NAME = 'peyzaj-atolyesi-v3';
 const ASSETS = [
-  './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -26,13 +25,32 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Sadece kendi sitemizden gelen, GET istekleri için önbellek uygula.
-  // Başka bir siteye (ör. kvdb.io) giden istekler veya POST/PUT gibi
-  // veri gönderen istekler doğrudan ağa gitsin, araya girmeyelim.
+  // Başka bir siteye (ör. Firebase) giden istekler veya GET olmayan
+  // istekler bu servis çalışanının işi değil, doğrudan ağa gitsin.
   if (url.origin !== self.location.origin || event.request.method !== 'GET') {
-    return; // event.respondWith çağırmazsak tarayıcı normal şekilde devam eder
+    return;
   }
 
+  // HTML sayfasının kendisi (index.html / navigasyon istekleri):
+  // HER ZAMAN önce ağdan güncel halini almaya çalış. Sadece tamamen
+  // çevrimdışıyken önbellekteki eski sürümü göster.
+  const isHTML = event.request.mode === 'navigate' ||
+                 (event.request.headers.get('accept') || '').includes('text/html');
+
+  if (isHTML) {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          const resClone = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+          return res;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Diğer statik dosyalar (ikonlar, manifest): önce önbellek, yoksa ağ.
   event.respondWith(
     caches.match(event.request).then((cached) => {
       return cached || fetch(event.request).then((res) => {
